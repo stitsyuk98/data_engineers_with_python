@@ -284,7 +284,7 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
-  # postgres for user
+  # postgres for user + pgAdmin
   postgres_data:
     container_name: postgres_container
     image: postgres:14.8-alpine3.18
@@ -363,12 +363,85 @@ services:
     depends_on:
       - "postgres_data"
 
+  # elastic + kibana
+  es-hot:
+    image: elasticsearch:8.7.0
+    container_name: es-hot
+    environment:
+      - node.name=es-hot
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es-hot,es-warm
+      - cluster.initial_master_nodes=es-hot,es-warm
+      - node.roles=master,data_content,data_hot  
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "http.host=0.0.0.0"
+      - xpack.security.enabled=false
+    volumes:
+      - ./elasticsearch/data01:/usr/share/elasticsearch/data:Z
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - 9200:9200
+    networks:
+      - elastic
+    depends_on:
+      - es-warm
 
+  es-warm:
+    image: elasticsearch:8.7.0
+    container_name: es-warm
+    environment:
+      - node.name=es-warm
+      - cluster.name=es-docker-cluster
+      - discovery.seed_hosts=es-hot,es-warm
+      - cluster.initial_master_nodes=es-hot,es-warm
+      - node.roles=master,data_warm
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - "http.host=0.0.0.0"
+    volumes:
+      - ./elasticsearch/data02:/usr/share/elasticsearch/data:Z
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - elastic
+
+  kibana:
+    image: kibana:8.7.0
+    container_name: kibana
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://es-hot:9200
+      ELASTICSEARCH_HOSTS: '["http://es-hot:9200","http://es-warm:9200"]'
+    networks:
+      - elastic
+    depends_on:
+      - es-hot
+      - es-warm
 
 volumes:
+  data01:
+    driver: local
+  data02:
+    driver: local
+  data03:
+    driver: local
   postgres-db-volume:
   pgadmin-data:
 
 networks:
   postgres:
+    driver: bridge
+  elastic:
     driver: bridge
